@@ -499,6 +499,14 @@ const char *av_packet_side_data_name(enum AVPacketSideDataType type);
  * @see av_packet_unref
  */
 typedef struct AVPacket {
+    
+    /**
+     * The name of the last file opened associated with this packet.
+     * This is useful for tracking the origins of the packet's data during
+     * processing and debugging, linking the packet contents directly to a specific
+     * media file.
+     */
+    char *filename;
     /**
      * A reference to the reference-counted buffer where the packet data is
      * stored.
