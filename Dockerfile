@@ -13,6 +13,7 @@ RUN apk update && apk add --no-cache \
     libvpx-dev \
     opus-dev \
     lame-dev \
+    openssl-dev \
     freetype-dev
 
 # Copiar o diretório atual (onde está o código do ffmpeg) para o contêiner
@@ -21,10 +22,11 @@ COPY . /ffmpeg
 # Configurar e compilar o ffmpeg
 WORKDIR /ffmpeg
 RUN ./configure \ 
-    --prefix=/usr \
+    --prefix=/ffmpeg-build \
     --enable-gpl \
     --enable-libx264 \
     --enable-libopus \
+    --enable-openssl \
     --enable-libvorbis \
     --enable-libmp3lame \
     --enable-nonfree \
@@ -35,4 +37,4 @@ RUN make -j$(nproc) && make install
 
 # Etapa final, apenas para manter os binários compilados
 FROM alpine:latest
-COPY --from=build-stage /usr /usr/local
+COPY --from=build-stage /ffmpeg-build /usr/local
