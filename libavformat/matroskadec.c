@@ -46,7 +46,6 @@
 #include "libavutil/lzo.h"
 #include "libavutil/mastering_display_metadata.h"
 #include "libavutil/mathematics.h"
-#include "libavutil/mem.h"
 #include "libavutil/opt.h"
 #include "libavutil/pixdesc.h"
 #include "libavutil/time_internal.h"
@@ -1315,8 +1314,6 @@ static int ebml_parse(MatroskaDemuxContext *matroska,
                     matroska->num_levels--;
                     return LEVEL_ENDED;
                 }
-                // We have not encountered a known element; syntax is a sentinel.
-                av_assert1(syntax->type == EBML_NONE);
             };
         }
 

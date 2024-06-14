@@ -35,7 +35,6 @@
 #include "libavutil/avassert.h"
 #include "libavutil/intreadwrite.h"
 #include "libavutil/mathematics.h"
-#include "libavutil/mem.h"
 #include "libavutil/opt.h"
 #include "libavutil/dict.h"
 #include "libavutil/time.h"
@@ -2099,7 +2098,6 @@ static int hls_read_header(AVFormatContext *s)
          * If encryption scheme is SAMPLE-AES and audio setup information is present in external audio track,
          * use that information to find the media format, otherwise probe input data
          */
-        seg = current_segment(pls);
         if (seg && seg->key_type == KEY_SAMPLE_AES && pls->is_id3_timestamped &&
             pls->audio_setup_info.codec_id != AV_CODEC_ID_NONE) {
             av_assert1(pls->audio_setup_info.codec_id == AV_CODEC_ID_AAC ||
@@ -2128,7 +2126,6 @@ static int hls_read_header(AVFormatContext *s)
             av_free(url);
         }
 
-        seg = current_segment(pls);
         if (seg && seg->key_type == KEY_SAMPLE_AES) {
             if (strstr(in_fmt->name, "mov")) {
                 char key[33];
@@ -2175,7 +2172,6 @@ static int hls_read_header(AVFormatContext *s)
          * on us if they want to.
          */
         if (pls->is_id3_timestamped || (pls->n_renditions > 0 && pls->renditions[0]->type == AVMEDIA_TYPE_AUDIO)) {
-            seg = current_segment(pls);
             if (seg && seg->key_type == KEY_SAMPLE_AES && pls->audio_setup_info.setup_data_length > 0 &&
                 pls->ctx->nb_streams == 1)
                 ret = ff_hls_senc_parse_audio_setup_info(pls->ctx->streams[0], &pls->audio_setup_info);
@@ -2296,19 +2292,12 @@ static int hls_read_packet(AVFormatContext *s, AVPacket *pkt)
 {
     HLSContext *c = s->priv_data;
     int ret, i, minplaylist = -1;
-    char *last_url = NULL;
 
     recheck_discard_flags(s, c->first_packet);
     c->first_packet = 0;
 
     for (i = 0; i < c->n_playlists; i++) {
         struct playlist *pls = c->playlists[i];
-        struct segment *auxSeg = NULL;
-
-        auxSeg = current_segment(pls);
-        if (auxSeg != NULL && auxSeg->url != NULL){
-            last_url = strdup(auxSeg->url);
-        }
         /* Make sure we've got one buffered packet from each open playlist
          * stream */
         if (pls->needed && !pls->pkt->data) {
@@ -2439,13 +2428,6 @@ static int hls_read_packet(AVFormatContext *s, AVPacket *pkt)
             }
         }
 
-        if (last_url != NULL) {
-            if (pkt->filename != NULL) {
-                free(pkt->filename);
-            }
-            pkt->filename = last_url;
-            last_url = NULL;
-        }
         return 0;
     }
     return AVERROR_EOF;

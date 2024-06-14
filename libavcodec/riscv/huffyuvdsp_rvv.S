@@ -36,10 +36,8 @@ func ff_add_int16_rvv, zve32x
         ret
 endfunc
 
-func ff_add_hfyu_left_pred_bgr32_rvv, zve32x, zbb
-        vtype_ivli t1, 4, e8, ta, ma
-        li      t0, 4
-        vsetvl  zero, t0, t1
+func ff_add_hfyu_left_pred_bgr32_rvv, zve32x
+        vsetivli zero, 4, e8, m1, ta, ma
         vle8.v  v8, (a3)
         sh2add  a2, a2, a1
 1:

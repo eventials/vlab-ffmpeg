@@ -19,7 +19,6 @@
 #include <stdint.h>
 
 #include "libavutil/log.h"
-#include "libavutil/mem.h"
 #include "libavutil/opt.h"
 
 #include "av1.h"

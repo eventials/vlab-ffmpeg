@@ -40,7 +40,7 @@
 #include "hevc_sei.h"
 #include "hevcdsp.h"
 #include "h274.h"
-#include "progressframe.h"
+#include "threadframe.h"
 #include "videodsp.h"
 
 #define SHIFT_CTB_WPP 2
@@ -352,13 +352,9 @@ typedef struct DBParams {
 #define HEVC_SEQUENCE_COUNTER_INVALID (HEVC_SEQUENCE_COUNTER_MASK + 1)
 
 typedef struct HEVCFrame {
-    union {
-        struct {
-            AVFrame *frame;
-        };
-        ProgressFrame tf;
-    };
+    AVFrame *frame;
     AVFrame *frame_grain;
+    ThreadFrame tf;
     int needs_fg; /* 1 if grain needs to be applied by the decoder */
     MvField *tab_mvf;              ///< RefStruct reference
     RefPicList *refPicList;

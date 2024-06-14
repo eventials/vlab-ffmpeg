@@ -26,7 +26,6 @@
 #include "libavcodec/vvc.h"
 #include "libavutil/avassert.h"
 #include "libavutil/intreadwrite.h"
-#include "libavutil/mem.h"
 #include "avc.h"
 #include "avio.h"
 #include "avio_internal.h"
@@ -70,15 +69,32 @@ typedef struct VVCDecoderConfigurationRecord {
     VVCCNALUnitArray *array;
 } VVCDecoderConfigurationRecord;
 
+typedef struct VVCCProfileTierLevel {
+    uint8_t profile_idc;
+    uint8_t tier_flag;
+    uint8_t general_level_idc;
+    uint8_t ptl_frame_only_constraint_flag;
+    uint8_t ptl_multilayer_enabled_flag;
+// general_constraint_info
+    uint8_t gci_present_flag;
+    uint8_t gci_general_constraints[9];
+    uint8_t gci_num_reserved_bits;
+// end general_constraint_info
+    uint8_t ptl_sublayer_level_present_flag[VVC_MAX_SUBLAYERS - 1];
+    uint8_t sublayer_level_idc[VVC_MAX_SUBLAYERS - 1];
+    uint8_t ptl_num_sub_profiles;
+    uint32_t general_sub_profile_idc[VVC_MAX_SUB_PROFILES];
+} VVCCProfileTierLevel;
+
 static void vvcc_update_ptl(VVCDecoderConfigurationRecord *vvcc,
-                            VVCPTLRecord *ptl)
+                            VVCCProfileTierLevel *ptl)
 {
     /*
      * The level indication general_level_idc must indicate a level of
      * capability equal to or greater than the highest level indicated for the
      * highest tier in all the parameter sets.
      */
-    if (vvcc->ptl.general_tier_flag < ptl->general_tier_flag)
+    if (vvcc->ptl.general_tier_flag < ptl->tier_flag)
         vvcc->ptl.general_level_idc = ptl->general_level_idc;
     else
         vvcc->ptl.general_level_idc =
@@ -89,7 +105,7 @@ static void vvcc_update_ptl(VVCDecoderConfigurationRecord *vvcc,
      * greater than the highest tier indicated in all the parameter sets.
      */
     vvcc->ptl.general_tier_flag =
-        FFMAX(vvcc->ptl.general_tier_flag, ptl->general_tier_flag);
+        FFMAX(vvcc->ptl.general_tier_flag, ptl->tier_flag);
 
     /*
      * The profile indication general_profile_idc must indicate a profile to
@@ -106,7 +122,7 @@ static void vvcc_update_ptl(VVCDecoderConfigurationRecord *vvcc,
      * Note: set the profile to the highest value for the sake of simplicity.
      */
     vvcc->ptl.general_profile_idc =
-        FFMAX(vvcc->ptl.general_profile_idc, ptl->general_profile_idc);
+        FFMAX(vvcc->ptl.general_profile_idc, ptl->profile_idc);
 
     /*
      * Each bit in flags may only be set if all
@@ -119,13 +135,14 @@ static void vvcc_update_ptl(VVCDecoderConfigurationRecord *vvcc,
     /*
      * Constraints Info
      */
-    if (ptl->num_bytes_constraint_info) {
-        vvcc->ptl.num_bytes_constraint_info = ptl->num_bytes_constraint_info;
+    if (ptl->gci_present_flag) {
+        vvcc->ptl.num_bytes_constraint_info = 9;
         memcpy(&vvcc->ptl.general_constraint_info[0],
-               &ptl->general_constraint_info[0], ptl->num_bytes_constraint_info);
+               &ptl->gci_general_constraints[0], sizeof(uint8_t) * 9);
+
     } else {
         vvcc->ptl.num_bytes_constraint_info = 1;
-        memset(&vvcc->ptl.general_constraint_info[0], 0, sizeof(vvcc->ptl.general_constraint_info));
+        memset(&vvcc->ptl.general_constraint_info[0], 0, sizeof(uint8_t) * 9);
     }
 
     /*
@@ -169,35 +186,36 @@ static void vvcc_parse_ptl(GetBitContext *gb,
                            unsigned int profileTierPresentFlag,
                            unsigned int max_sub_layers_minus1)
 {
-    VVCPTLRecord general_ptl = { 0 };
+    VVCCProfileTierLevel general_ptl = { 0 };
+    int j;
 
     if (profileTierPresentFlag) {
-        general_ptl.general_profile_idc = get_bits(gb, 7);
-        general_ptl.general_tier_flag = get_bits1(gb);
+        general_ptl.profile_idc = get_bits(gb, 7);
+        general_ptl.tier_flag = get_bits1(gb);
     }
     general_ptl.general_level_idc = get_bits(gb, 8);
 
     general_ptl.ptl_frame_only_constraint_flag = get_bits1(gb);
     general_ptl.ptl_multilayer_enabled_flag = get_bits1(gb);
     if (profileTierPresentFlag) {       // parse constraint info
-        general_ptl.num_bytes_constraint_info = get_bits1(gb); // gci_present_flag
-        if (general_ptl.num_bytes_constraint_info) {
-            int gci_num_reserved_bits, j;
+        general_ptl.gci_present_flag = get_bits1(gb);
+        if (general_ptl.gci_present_flag) {
             for (j = 0; j < 8; j++)
-                general_ptl.general_constraint_info[j] = get_bits(gb, 8);
-            general_ptl.general_constraint_info[j++] = get_bits(gb, 7);
+                general_ptl.gci_general_constraints[j] = get_bits(gb, 8);
+            general_ptl.gci_general_constraints[8] = get_bits(gb, 7);
 
-            gci_num_reserved_bits = get_bits(gb, 8);
-            general_ptl.num_bytes_constraint_info = j;
-            skip_bits(gb, gci_num_reserved_bits);
+            general_ptl.gci_num_reserved_bits = get_bits(gb, 8);
+            skip_bits(gb, general_ptl.gci_num_reserved_bits);
         }
-        align_get_bits(gb);
+        while (gb->index % 8 != 0)
+            skip_bits1(gb);
     }
 
     for (int i = max_sub_layers_minus1 - 1; i >= 0; i--)
         general_ptl.ptl_sublayer_level_present_flag[i] = get_bits1(gb);
 
-    align_get_bits(gb);
+    while (gb->index % 8 != 0)
+        skip_bits1(gb);
 
     for (int i = max_sub_layers_minus1 - 1; i >= 0; i--) {
         if (general_ptl.ptl_sublayer_level_present_flag[i])
@@ -222,6 +240,8 @@ static int vvcc_parse_vps(GetBitContext *gb,
     unsigned int vps_max_sublayers_minus1;
     unsigned int vps_default_ptl_dpb_hrd_max_tid_flag;
     unsigned int vps_all_independent_layers_flag;
+    unsigned int vps_each_layer_is_an_ols_flag;
+    unsigned int vps_ols_mode_idc;
 
     unsigned int vps_pt_present_flag[VVC_MAX_PTLS];
     unsigned int vps_ptl_max_tid[VVC_MAX_PTLS];
@@ -270,13 +290,11 @@ static int vvcc_parse_vps(GetBitContext *gb,
     }
 
     if (vps_max_layers_minus1 > 0) {
-        unsigned int vps_each_layer_is_an_ols_flag;
         if (vps_all_independent_layers_flag)
             vps_each_layer_is_an_ols_flag = get_bits1(gb);
         else
             vps_each_layer_is_an_ols_flag = 0;
         if (!vps_each_layer_is_an_ols_flag) {
-            unsigned int vps_ols_mode_idc;
             if (!vps_all_independent_layers_flag)
                 vps_ols_mode_idc = get_bits(gb, 2);
             else
@@ -291,6 +309,8 @@ static int vvcc_parse_vps(GetBitContext *gb,
             }
         }
         vps_num_ptls_minus1 = get_bits(gb, 8);
+    } else {
+        vps_each_layer_is_an_ols_flag = 0;
     }
 
     for (int i = 0; i <= vps_num_ptls_minus1; i++) {
@@ -305,7 +325,8 @@ static int vvcc_parse_vps(GetBitContext *gb,
             vps_ptl_max_tid[i] = vps_max_sublayers_minus1;
     }
 
-    align_get_bits(gb);
+    while (gb->index % 8 != 0)
+        skip_bits1(gb);
 
     for (int i = 0; i <= vps_num_ptls_minus1; i++)
         vvcc_parse_ptl(gb, vvcc, vps_pt_present_flag[i], vps_ptl_max_tid[i]);

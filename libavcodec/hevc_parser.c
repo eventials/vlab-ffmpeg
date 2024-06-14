@@ -21,7 +21,6 @@
  */
 
 #include "libavutil/common.h"
-#include "libavutil/mem.h"
 
 #include "golomb.h"
 #include "hevc.h"

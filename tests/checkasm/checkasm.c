@@ -72,9 +72,6 @@
 void (*checkasm_checked_call)(void *func, int dummy, ...) = checkasm_checked_call_novfp;
 #endif
 
-/* Trade-off between speed and accuracy */
-uint64_t bench_runs = 1U << 10;
-
 /* List of tests to invoke */
 static const struct {
     const char *name;
@@ -109,9 +106,6 @@ static const struct {
     #if CONFIG_EXR_DECODER
         { "exrdsp", checkasm_check_exrdsp },
     #endif
-    #if CONFIG_FDCTDSP
-        { "fdctdsp", checkasm_check_fdctdsp },
-    #endif
     #if CONFIG_FLAC_DECODER
         { "flacdsp", checkasm_check_flacdsp },
     #endif
@@ -120,9 +114,6 @@ static const struct {
     #endif
     #if CONFIG_G722DSP
         { "g722dsp", checkasm_check_g722dsp },
-    #endif
-    #if CONFIG_H263DSP
-        { "h263dsp", checkasm_check_h263dsp },
     #endif
     #if CONFIG_H264CHROMA
         { "h264chroma", checkasm_check_h264chroma },
@@ -176,9 +167,6 @@ static const struct {
     #if CONFIG_RV34DSP
         { "rv34dsp", checkasm_check_rv34dsp },
     #endif
-    #if CONFIG_RV40_DECODER
-        { "rv40dsp", checkasm_check_rv40dsp },
-    #endif
     #if CONFIG_SVQ1_ENCODER
         { "svq1enc", checkasm_check_svq1enc },
     #endif
@@ -210,8 +198,7 @@ static const struct {
         { "vorbisdsp", checkasm_check_vorbisdsp },
     #endif
     #if CONFIG_VVC_DECODER
-        { "vvc_alf", checkasm_check_vvc_alf },
-        { "vvc_mc",  checkasm_check_vvc_mc  },
+        { "vvc_mc", checkasm_check_vvc_mc },
     #endif
 #endif
 #if CONFIG_AVFILTER
@@ -284,7 +271,6 @@ static const struct {
     { "POWER8",   "power8",   AV_CPU_FLAG_POWER8 },
 #elif ARCH_RISCV
     { "RVI",      "rvi",      AV_CPU_FLAG_RVI },
-    { "misaligned", "misaligned", AV_CPU_FLAG_RV_MISALIGNED },
     { "RVF",      "rvf",      AV_CPU_FLAG_RVF },
     { "RVD",      "rvd",      AV_CPU_FLAG_RVD },
     { "RVBaddr",  "rvb_a",    AV_CPU_FLAG_RVB_ADDR },
@@ -293,7 +279,6 @@ static const struct {
     { "RVVf32",   "rvv_f32",  AV_CPU_FLAG_RVV_F32 },
     { "RVVi64",   "rvv_i64",  AV_CPU_FLAG_RVV_I64 },
     { "RVVf64",   "rvv_f64",  AV_CPU_FLAG_RVV_F64 },
-    { "RV_Zvbb",  "rv_zvbb",  AV_CPU_FLAG_RV_ZVBB },
 #elif ARCH_MIPS
     { "MMI",      "mmi",      AV_CPU_FLAG_MMI },
     { "MSA",      "msa",      AV_CPU_FLAG_MSA },
@@ -757,9 +742,6 @@ static int bench_init_linux(void)
         .disabled       = 1, // start counting only on demand
         .exclude_kernel = 1,
         .exclude_hv     = 1,
-#if !ARCH_X86
-        .exclude_guest  = 1,
-#endif
     };
 
     printf("benchmarking with Linux Perf Monitoring API\n");
@@ -826,7 +808,7 @@ static void bench_uninit(void)
 static int usage(const char *path)
 {
     fprintf(stderr,
-            "Usage: %s [--bench] [--runs=<ptwo>] [--test=<pattern>] [--verbose] [seed]\n",
+            "Usage: %s [--bench] [--test=<pattern>] [--verbose] [seed]\n",
             path);
     return 1;
 }
@@ -873,17 +855,6 @@ int main(int argc, char *argv[])
             state.test_name = arg + 7;
         } else if (!strcmp(arg, "--verbose") || !strcmp(arg, "-v")) {
             state.verbose = 1;
-        } else if (!strncmp(arg, "--runs=", 7)) {
-            l = strtoul(arg + 7, &end, 10);
-            if (*end == '\0') {
-                if (l > 30) {
-                    fprintf(stderr, "checkasm: error: runs exponent must be within the range 0 <= 30\n");
-                    usage(argv[0]);
-                }
-                bench_runs = 1U << l;
-            } else {
-                return usage(argv[0]);
-            }
         } else if ((l = strtoul(arg, &end, 10)) <= UINT_MAX &&
                    *end == '\0') {
             seed = l;
@@ -894,9 +865,6 @@ int main(int argc, char *argv[])
 
     fprintf(stderr, "checkasm: using random seed %u\n", seed);
     av_lfg_init(&checkasm_lfg, seed);
-
-    if (state.bench_pattern)
-        fprintf(stderr, "checkasm: bench runs %" PRIu64 " (1 << %i)\n", bench_runs, av_log2(bench_runs));
 
     check_cpu_flag(NULL, 0);
     for (i = 0; cpus[i].flag; i++)

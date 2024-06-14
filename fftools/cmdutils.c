@@ -33,14 +33,17 @@
 #include "compat/va_copy.h"
 #include "libavformat/avformat.h"
 #include "libswscale/swscale.h"
+#include "libswscale/version.h"
 #include "libswresample/swresample.h"
 #include "libavutil/avassert.h"
 #include "libavutil/avstring.h"
 #include "libavutil/bprint.h"
+#include "libavutil/channel_layout.h"
 #include "libavutil/display.h"
 #include "libavutil/getenv_utf8.h"
+#include "libavutil/mathematics.h"
+#include "libavutil/imgutils.h"
 #include "libavutil/libm.h"
-#include "libavutil/mem.h"
 #include "libavutil/parseutils.h"
 #include "libavutil/eval.h"
 #include "libavutil/dict.h"
@@ -311,7 +314,7 @@ static int write_option(void *optctx, const OptionDef *po, const char *opt,
 
         *(int *)dst = num;
     } else if (po->type == OPT_TYPE_INT64) {
-        ret = parse_number(opt, arg, OPT_TYPE_INT64, INT64_MIN, (double)INT64_MAX, &num);
+        ret = parse_number(opt, arg, OPT_TYPE_INT64, INT64_MIN, INT64_MAX, &num);
         if (ret < 0)
             goto finish;
 
@@ -995,6 +998,10 @@ int filter_codec_opts(const AVDictionary *opts, enum AVCodecID codec_id,
     char          prefix = 0;
     const AVClass    *cc = avcodec_get_class();
 
+    if (!codec)
+        codec            = s->oformat ? avcodec_find_encoder(codec_id)
+                                      : avcodec_find_decoder(codec_id);
+
     switch (st->codecpar->codec_type) {
     case AVMEDIA_TYPE_VIDEO:
         prefix  = 'v';
@@ -1145,24 +1152,4 @@ char *file_read(const char *filename)
     if (ret < 0)
         return NULL;
     return str;
-}
-
-void remove_avoptions(AVDictionary **a, AVDictionary *b)
-{
-    const AVDictionaryEntry *t = NULL;
-
-    while ((t = av_dict_iterate(b, t))) {
-        av_dict_set(a, t->key, NULL, AV_DICT_MATCH_CASE);
-    }
-}
-
-int check_avoptions(AVDictionary *m)
-{
-    const AVDictionaryEntry *t = av_dict_iterate(m, NULL);
-    if (t) {
-        av_log(NULL, AV_LOG_FATAL, "Option %s not found.\n", t->key);
-        return AVERROR_OPTION_NOT_FOUND;
-    }
-
-    return 0;
 }

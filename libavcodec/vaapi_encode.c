@@ -25,7 +25,6 @@
 #include "libavutil/common.h"
 #include "libavutil/internal.h"
 #include "libavutil/log.h"
-#include "libavutil/mem.h"
 #include "libavutil/pixdesc.h"
 
 #include "vaapi_encode.h"

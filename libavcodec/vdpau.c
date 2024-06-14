@@ -23,12 +23,14 @@
 
 #include "config_components.h"
 
-#include "libavutil/mem.h"
+#include <limits.h>
+
 #include "avcodec.h"
 #include "decode.h"
 #include "hwaccel_internal.h"
 #include "internal.h"
 #include "mpegvideodec.h"
+#include "vc1.h"
 #include "vdpau.h"
 #include "vdpau_internal.h"
 

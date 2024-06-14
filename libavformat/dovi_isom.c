@@ -22,7 +22,6 @@
  */
 
 #include "libavutil/dovi_meta.h"
-#include "libavutil/mem.h"
 
 #include "libavcodec/put_bits.h"
 

@@ -27,7 +27,6 @@
 
 #include "config_components.h"
 
-#include "libavutil/mem.h"
 #include "mathops.h"
 #include "opustab.h"
 #include "opus_pvq.h"

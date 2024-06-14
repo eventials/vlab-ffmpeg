@@ -46,7 +46,6 @@
 #include "libavutil/mastering_display_metadata.h"
 #include "libavutil/hdr_dynamic_vivid_metadata.h"
 #include "libavutil/dovi_meta.h"
-#include "libavutil/mem.h"
 #include "libavutil/opt.h"
 #include "libavutil/pixdesc.h"
 #include "libavutil/spherical.h"
@@ -3324,8 +3323,8 @@ static int show_stream(WriterContext *w, AVFormatContext *fmt_ctx, int stream_id
         if (sar.num) {
             print_q("sample_aspect_ratio", sar, ':');
             av_reduce(&dar.num, &dar.den,
-                      (int64_t) par->width  * sar.num,
-                      (int64_t) par->height * sar.den,
+                      par->width  * sar.num,
+                      par->height * sar.den,
                       1024*1024);
             print_q("display_aspect_ratio", dar, ':');
         } else {
@@ -3951,7 +3950,7 @@ static int open_input_file(InputFile *ifile, const char *filename,
                 exit(1);
             }
 
-            if ((t = av_dict_iterate(opts, NULL))) {
+            if ((t = av_dict_get(opts, "", NULL, AV_DICT_IGNORE_SUFFIX))) {
                 av_log(NULL, AV_LOG_ERROR, "Option %s for input stream %d not found\n",
                        t->key, stream->index);
                 return AVERROR_OPTION_NOT_FOUND;

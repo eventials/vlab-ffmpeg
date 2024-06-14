@@ -22,14 +22,13 @@
 
 #include "libavutil/avassert.h"
 #include "libavutil/common.h"
-#include "libavutil/mem.h"
 #include "libavutil/pixdesc.h"
 #include "libavutil/imgutils.h"
 
 #include "avcodec.h"
 #include "motion_est.h"
 #include "mpegpicture.h"
-#include "mpegvideo.h"
+#include "mpegutils.h"
 #include "refstruct.h"
 #include "threadframe.h"
 

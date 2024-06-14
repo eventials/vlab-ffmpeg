@@ -39,7 +39,6 @@
 #include "libavutil/internal.h"
 #include "libavutil/intmath.h"
 #include "libavutil/mathematics.h"
-#include "libavutil/mem.h"
 #include "libavutil/mem_internal.h"
 #include "libavutil/opt.h"
 #include "libavutil/thread.h"
@@ -251,6 +250,7 @@ static void update_duplicate_context_after_me(MpegEncContext *dst,
 {
 #define COPY(a) dst->a= src->a
     COPY(pict_type);
+    COPY(current_picture);
     COPY(f_code);
     COPY(b_code);
     COPY(qscale);
@@ -3623,15 +3623,15 @@ static int encode_picture(MpegEncContext *s)
         s->q_chroma_intra_matrix16 = s->q_intra_matrix16;
     }
 
-    if(ff_init_me(s)<0)
-        return -1;
-
     s->mb_intra=0; //for the rate distortion & bit compare functions
     for(i=1; i<context_count; i++){
         ret = ff_update_duplicate_context(s->thread_context[i], s);
         if (ret < 0)
             return ret;
     }
+
+    if(ff_init_me(s)<0)
+        return -1;
 
     /* Estimate motion for every MB */
     if(s->pict_type != AV_PICTURE_TYPE_I){

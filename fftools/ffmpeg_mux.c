@@ -140,7 +140,7 @@ static int mux_fixup_ts(Muxer *mux, MuxStream *ms, AVPacket *pkt)
     OutputStream *ost = &ms->ost;
 
 #if FFMPEG_OPT_VSYNC_DROP
-    if (ost->type == AVMEDIA_TYPE_VIDEO && ms->ts_drop)
+    if (ost->type == AVMEDIA_TYPE_VIDEO && ost->vsync_method == VSYNC_DROP)
         pkt->pts = pkt->dts = AV_NOPTS_VALUE;
 #endif
 
@@ -213,10 +213,6 @@ static int write_packet(Muxer *mux, OutputStream *ost, AVPacket *pkt)
     int64_t fs;
     uint64_t frame_num;
     int ret;
-    char *filename = NULL;
-
-    if (pkt->filename != NULL)
-        filename = strdup(pkt->filename);
 
     fs = filesize(s->pb);
     atomic_store(&mux->last_filesize, fs);
@@ -239,16 +235,9 @@ static int write_packet(Muxer *mux, OutputStream *ost, AVPacket *pkt)
 
     ret = av_interleaved_write_frame(s, pkt);
     if (ret < 0) {
-        if (filename != NULL){
-            av_log(ost, AV_LOG_FATAL,
-               "Error submitting a packet of (%s) to the muxer: %s\n",
-               filename,
+        av_log(ost, AV_LOG_ERROR,
+               "Error submitting a packet to the muxer: %s\n",
                av_err2str(ret));
-        } else {
-            av_log(ost, AV_LOG_FATAL,
-               "Error submitting a packet without filename to the muxer: %s\n",
-               av_err2str(ret));
-        }
         goto fail;
     }
 
@@ -381,11 +370,10 @@ fail:
     return ret;
 }
 
-static void thread_set_name(Muxer *mux)
+static void thread_set_name(OutputFile *of)
 {
     char name[16];
-    snprintf(name, sizeof(name), "mux%d:%s",
-             mux->of.index, mux->fc->oformat->name);
+    snprintf(name, sizeof(name), "mux%d:%s", of->index, of->format->name);
     ff_thread_setname(name);
 }
 
@@ -429,7 +417,7 @@ int muxer_thread(void *arg)
     if (ret < 0)
         goto finish;
 
-    thread_set_name(mux);
+    thread_set_name(of);
 
     while (1) {
         OutputStream *ost;
@@ -527,10 +515,8 @@ int print_sdp(const char *filename)
     if (!avc)
         return AVERROR(ENOMEM);
     for (int i = 0; i < nb_output_files; i++) {
-        Muxer *mux = mux_from_of(output_files[i]);
-
-        if (!strcmp(mux->fc->oformat->name, "rtp")) {
-            avc[j] = mux->fc;
+        if (!strcmp(output_files[i]->format->name, "rtp")) {
+            avc[j] = mux_from_of(output_files[i])->fc;
             j++;
         }
     }
@@ -770,7 +756,7 @@ int of_write_trailer(OutputFile *of)
 
     mux->last_filesize = filesize(fc->pb);
 
-    if (!(fc->oformat->flags & AVFMT_NOFILE)) {
+    if (!(of->format->flags & AVFMT_NOFILE)) {
         ret = avio_closep(&fc->pb);
         if (ret < 0) {
             av_log(mux, AV_LOG_ERROR, "Error closing file: %s\n", av_err2str(ret));
@@ -808,7 +794,6 @@ static void ost_free(OutputStream **post)
     ms = ms_from_ost(ost);
 
     enc_free(&ost->enc);
-    fg_free(&ost->fg_simple);
 
     if (ost->logfile) {
         if (fclose(ost->logfile))
@@ -830,8 +815,12 @@ static void ost_free(OutputStream **post)
     av_expr_free(ost->kf.pexpr);
 
     av_freep(&ost->logfile_prefix);
+    av_freep(&ost->apad);
 
     av_freep(&ost->attachment_filename);
+
+    av_dict_free(&ost->sws_dict);
+    av_dict_free(&ost->swr_opts);
 
     if (ost->enc_ctx)
         av_freep(&ost->enc_ctx->stats_in);

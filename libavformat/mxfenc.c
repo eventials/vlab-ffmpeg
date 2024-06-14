@@ -40,7 +40,6 @@
 #include <inttypes.h>
 #include <time.h>
 
-#include "libavutil/mem.h"
 #include "libavutil/opt.h"
 #include "libavutil/random_seed.h"
 #include "libavutil/timecode.h"

@@ -93,7 +93,11 @@ static av_cold int dvvideo_encode_init(AVCodecContext *avctx)
         return AVERROR(EINVAL);
     }
 
-    ff_dv_init_dynamic_tables(s->work_chunks, s->sys);
+    ret = ff_dv_init_dynamic_tables(s->work_chunks, s->sys);
+    if (ret < 0) {
+        av_log(avctx, AV_LOG_ERROR, "Error initializing work tables.\n");
+        return ret;
+    }
 
     memset(&fdsp,0, sizeof(fdsp));
     memset(&mecc,0, sizeof(mecc));

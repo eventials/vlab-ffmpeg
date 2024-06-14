@@ -23,7 +23,6 @@
 #include <stdio.h>
 #include <string.h>
 
-#include "libavutil/mem.h"
 #include "avcodec.h"
 #include "bytestream.h"
 #include "codec_internal.h"
@@ -210,6 +209,9 @@ inflate_error:
         memcpy(frame->data[0] + (avctx->height - j - 1) * frame->linesize[0],
                s->uncomp_buf + s->bpp * j * avctx->width, s->bpp * avctx->width);
     }
+
+    frame->flags |= AV_FRAME_FLAG_KEY;
+    frame->pict_type = AV_PICTURE_TYPE_I;
 
     *got_frame = 1;
 

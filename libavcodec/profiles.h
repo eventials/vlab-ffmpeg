@@ -19,8 +19,7 @@
 #ifndef AVCODEC_PROFILES_H
 #define AVCODEC_PROFILES_H
 
-#include "codec.h"
-#include "defs.h"
+#include "avcodec.h"
 #include "libavutil/opt.h"
 
 #define FF_AVCTX_PROFILE_OPTION(name, description, type, value) \

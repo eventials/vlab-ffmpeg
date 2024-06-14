@@ -23,7 +23,6 @@
 
 #include "libavutil/avassert.h"
 #include "libavutil/common.h"
-#include "libavutil/mem.h"
 #include "libavutil/pixdesc.h"
 #include "libavutil/opt.h"
 #include "libavutil/mastering_display_metadata.h"
@@ -36,6 +35,8 @@
 #include "h2645data.h"
 #include "h265_profile_level.h"
 #include "hevc.h"
+#include "hevc_sei.h"
+#include "put_bits.h"
 #include "vaapi_encode.h"
 
 enum {
@@ -944,23 +945,26 @@ static int vaapi_encode_h265_init_picture_params(AVCodecContext *avctx,
 
     vpic->nal_unit_type = hpic->slice_nal_unit;
 
-    vpic->pic_fields.bits.reference_pic_flag = pic->is_reference;
     switch (pic->type) {
     case PICTURE_TYPE_IDR:
         vpic->pic_fields.bits.idr_pic_flag       = 1;
         vpic->pic_fields.bits.coding_type        = 1;
+        vpic->pic_fields.bits.reference_pic_flag = 1;
         break;
     case PICTURE_TYPE_I:
         vpic->pic_fields.bits.idr_pic_flag       = 0;
         vpic->pic_fields.bits.coding_type        = 1;
+        vpic->pic_fields.bits.reference_pic_flag = 1;
         break;
     case PICTURE_TYPE_P:
         vpic->pic_fields.bits.idr_pic_flag       = 0;
         vpic->pic_fields.bits.coding_type        = 2;
+        vpic->pic_fields.bits.reference_pic_flag = 1;
         break;
     case PICTURE_TYPE_B:
         vpic->pic_fields.bits.idr_pic_flag       = 0;
         vpic->pic_fields.bits.coding_type        = 3;
+        vpic->pic_fields.bits.reference_pic_flag = 0;
         break;
     default:
         av_assert0(0 && "invalid picture type");

@@ -50,7 +50,6 @@
 
 #include "libavutil/common.h"
 #include "libavutil/frame.h"
-#include "libavutil/mem.h"
 #include "libavutil/pixdesc.h"
 #include "libavutil/log.h"
 #include "libavutil/opt.h"

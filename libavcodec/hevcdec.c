@@ -31,7 +31,6 @@
 #include "libavutil/film_grain_params.h"
 #include "libavutil/internal.h"
 #include "libavutil/md5.h"
-#include "libavutil/mem.h"
 #include "libavutil/opt.h"
 #include "libavutil/pixdesc.h"
 #include "libavutil/timecode.h"
@@ -49,9 +48,9 @@
 #include "hwconfig.h"
 #include "internal.h"
 #include "profiles.h"
-#include "progressframe.h"
 #include "refstruct.h"
 #include "thread.h"
+#include "threadframe.h"
 
 static const uint8_t hevc_pel_weight[65] = { [2] = 0, [4] = 1, [6] = 2, [8] = 3, [12] = 4, [16] = 5, [24] = 6, [32] = 7, [48] = 8, [64] = 9 };
 
@@ -1867,7 +1866,7 @@ static void hevc_await_progress(const HEVCContext *s, const HEVCFrame *ref,
     if (s->threads_type == FF_THREAD_FRAME ) {
         int y = FFMAX(0, (mv->y >> 2) + y0 + height + 9);
 
-        ff_progress_frame_await(&ref->tf, y);
+        ff_thread_await_progress(&ref->tf, y, 0);
     }
 }
 
@@ -3209,8 +3208,7 @@ static int decode_nal_units(HEVCContext *s, const uint8_t *buf, int length)
             return AVERROR(ENOMEM);
         memcpy(s->rpu_buf->data, nal->raw_data + 2, nal->raw_size - 2);
 
-        ret = ff_dovi_rpu_parse(&s->dovi_ctx, nal->data + 2, nal->size - 2,
-                                s->avctx->err_recognition);
+        ret = ff_dovi_rpu_parse(&s->dovi_ctx, nal->data + 2, nal->size - 2);
         if (ret < 0) {
             av_buffer_unref(&s->rpu_buf);
             av_log(s->avctx, AV_LOG_WARNING, "Error parsing DOVI NAL unit.\n");
@@ -3239,7 +3237,7 @@ static int decode_nal_units(HEVCContext *s, const uint8_t *buf, int length)
 
 fail:
     if (s->ref && s->threads_type == FF_THREAD_FRAME)
-        ff_progress_frame_report(&s->ref->tf, INT_MAX);
+        ff_thread_report_progress(&s->ref->tf, INT_MAX, 0);
 
     return ret;
 }
@@ -3365,13 +3363,14 @@ static int hevc_decode_frame(AVCodecContext *avctx, AVFrame *rframe,
     }
 
     sd = av_packet_get_side_data(avpkt, AV_PKT_DATA_DOVI_CONF, &sd_size);
-    if (sd && sd_size >= sizeof(s->dovi_ctx.cfg)) {
-        int old = s->dovi_ctx.cfg.dv_profile;
-        s->dovi_ctx.cfg = *(AVDOVIDecoderConfigurationRecord *) sd;
+    if (sd && sd_size > 0) {
+        int old = s->dovi_ctx.dv_profile;
+
+        ff_dovi_update_cfg(&s->dovi_ctx, (AVDOVIDecoderConfigurationRecord *) sd);
         if (old)
             av_log(avctx, AV_LOG_DEBUG,
                    "New DOVI configuration record from input packet (profile %d -> %u).\n",
-                   old, s->dovi_ctx.cfg.dv_profile);
+                   old, s->dovi_ctx.dv_profile);
     }
 
     s->ref = s->collocated_ref = NULL;
@@ -3416,14 +3415,14 @@ static int hevc_ref_frame(HEVCFrame *dst, HEVCFrame *src)
 {
     int ret;
 
-    ff_progress_frame_ref(&dst->tf, &src->tf);
+    ret = ff_thread_ref_frame(&dst->tf, &src->tf);
+    if (ret < 0)
+        return ret;
 
     if (src->needs_fg) {
         ret = av_frame_ref(dst->frame_grain, src->frame_grain);
-        if (ret < 0) {
-            ff_hevc_unref_frame(dst, ~0);
+        if (ret < 0)
             return ret;
-        }
         dst->needs_fg = 1;
     }
 
@@ -3463,6 +3462,7 @@ static av_cold int hevc_decode_free(AVCodecContext *avctx)
 
     for (i = 0; i < FF_ARRAY_ELEMS(s->DPB); i++) {
         ff_hevc_unref_frame(&s->DPB[i], ~0);
+        av_frame_free(&s->DPB[i].frame);
         av_frame_free(&s->DPB[i].frame_grain);
     }
 
@@ -3508,6 +3508,11 @@ static av_cold int hevc_init_context(AVCodecContext *avctx)
         return AVERROR(ENOMEM);
 
     for (i = 0; i < FF_ARRAY_ELEMS(s->DPB); i++) {
+        s->DPB[i].frame = av_frame_alloc();
+        if (!s->DPB[i].frame)
+            return AVERROR(ENOMEM);
+        s->DPB[i].tf.f = s->DPB[i].frame;
+
         s->DPB[i].frame_grain = av_frame_alloc();
         if (!s->DPB[i].frame_grain)
             return AVERROR(ENOMEM);
@@ -3539,7 +3544,7 @@ static int hevc_update_thread_context(AVCodecContext *dst,
 
     for (i = 0; i < FF_ARRAY_ELEMS(s->DPB); i++) {
         ff_hevc_unref_frame(&s->DPB[i], ~0);
-        if (s0->DPB[i].frame) {
+        if (s0->DPB[i].frame->buf[0]) {
             ret = hevc_ref_frame(&s->DPB[i], &s0->DPB[i]);
             if (ret < 0)
                 return ret;
@@ -3652,15 +3657,11 @@ static av_cold int hevc_decode_init(AVCodecContext *avctx)
             if (ret < 0) {
                 return ret;
             }
-
-            ret = ff_h2645_sei_to_context(avctx, &s->sei.common);
-            if (ret < 0)
-                return ret;
         }
 
         sd = ff_get_coded_side_data(avctx, AV_PKT_DATA_DOVI_CONF);
-        if (sd && sd->size >= sizeof(s->dovi_ctx.cfg))
-            s->dovi_ctx.cfg = *(AVDOVIDecoderConfigurationRecord *) sd->data;
+        if (sd && sd->size > 0)
+            ff_dovi_update_cfg(&s->dovi_ctx, (AVDOVIDecoderConfigurationRecord *) sd->data);
     }
 
     return 0;
@@ -3713,8 +3714,7 @@ const FFCodec ff_hevc_decoder = {
     .p.capabilities        = AV_CODEC_CAP_DR1 | AV_CODEC_CAP_DELAY |
                              AV_CODEC_CAP_SLICE_THREADS | AV_CODEC_CAP_FRAME_THREADS,
     .caps_internal         = FF_CODEC_CAP_EXPORTS_CROPPING |
-                             FF_CODEC_CAP_USES_PROGRESSFRAMES |
-                             FF_CODEC_CAP_INIT_CLEANUP,
+                             FF_CODEC_CAP_ALLOCATE_PROGRESS | FF_CODEC_CAP_INIT_CLEANUP,
     .p.profiles            = NULL_IF_CONFIG_SMALL(ff_hevc_profiles),
     .hw_configs            = (const AVCodecHWConfigInternal *const []) {
 #if CONFIG_HEVC_DXVA2_HWACCEL

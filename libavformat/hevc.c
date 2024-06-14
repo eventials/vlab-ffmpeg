@@ -22,7 +22,6 @@
 #include "libavcodec/golomb.h"
 #include "libavcodec/hevc.h"
 #include "libavutil/intreadwrite.h"
-#include "libavutil/mem.h"
 #include "avc.h"
 #include "avio.h"
 #include "avio_internal.h"

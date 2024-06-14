@@ -31,6 +31,7 @@
 #include "ffmpeg_sched.h"
 #include "cmdutils.h"
 #include "opt_common.h"
+#include "sync_queue.h"
 
 #include "libavformat/avformat.h"
 
@@ -42,10 +43,16 @@
 #include "libavutil/avassert.h"
 #include "libavutil/avstring.h"
 #include "libavutil/avutil.h"
+#include "libavutil/bprint.h"
+#include "libavutil/channel_layout.h"
+#include "libavutil/display.h"
+#include "libavutil/intreadwrite.h"
+#include "libavutil/fifo.h"
 #include "libavutil/mathematics.h"
-#include "libavutil/mem.h"
 #include "libavutil/opt.h"
 #include "libavutil/parseutils.h"
+#include "libavutil/pixdesc.h"
+#include "libavutil/pixfmt.h"
 
 HWDevice *filter_hw_device;
 
@@ -317,7 +324,7 @@ static int opt_filter_threads(void *optctx, const char *opt, const char *arg)
 static int opt_abort_on(void *optctx, const char *opt, const char *arg)
 {
     static const AVOption opts[] = {
-        { "abort_on"           , NULL, 0, AV_OPT_TYPE_FLAGS, { .i64 = 0 }, INT64_MIN, (double)INT64_MAX,   .unit = "flags" },
+        { "abort_on"           , NULL, 0, AV_OPT_TYPE_FLAGS, { .i64 = 0 }, INT64_MIN, INT64_MAX,           .unit = "flags" },
         { "empty_output"       , NULL, 0, AV_OPT_TYPE_CONST, { .i64 = ABORT_ON_FLAG_EMPTY_OUTPUT        }, .unit = "flags" },
         { "empty_output_stream", NULL, 0, AV_OPT_TYPE_CONST, { .i64 = ABORT_ON_FLAG_EMPTY_OUTPUT_STREAM }, .unit = "flags" },
         { NULL },
@@ -1264,10 +1271,12 @@ int ffmpeg_parse_options(int argc, char **argv, Scheduler *sch)
     }
 
     // bind unbound filtegraph inputs/outputs and check consistency
-    ret = fg_finalise_bindings();
-    if (ret < 0) {
-        errmsg = "binding filtergraph inputs/outputs";
-        goto fail;
+    for (int i = 0; i < nb_filtergraphs; i++) {
+        ret = fg_finalise_bindings(filtergraphs[i]);
+        if (ret < 0) {
+            errmsg = "binding filtergraph inputs/outputs";
+            goto fail;
+        }
     }
 
     correct_input_start_times();

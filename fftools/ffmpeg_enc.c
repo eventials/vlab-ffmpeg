@@ -20,6 +20,8 @@
 #include <stdint.h>
 
 #include "ffmpeg.h"
+#include "ffmpeg_utils.h"
+#include "thread_queue.h"
 
 #include "libavutil/avassert.h"
 #include "libavutil/avstring.h"
@@ -30,13 +32,14 @@
 #include "libavutil/frame.h"
 #include "libavutil/intreadwrite.h"
 #include "libavutil/log.h"
-#include "libavutil/mem.h"
 #include "libavutil/pixdesc.h"
 #include "libavutil/rational.h"
 #include "libavutil/time.h"
 #include "libavutil/timestamp.h"
 
 #include "libavcodec/avcodec.h"
+
+#include "libavformat/avformat.h"
 
 struct Encoder {
     // combined size of all the packets received from the encoder
@@ -184,20 +187,6 @@ int enc_open(void *opaque, const AVFrame *frame)
     if (frame) {
         av_assert0(frame->opaque_ref);
         fd = (FrameData*)frame->opaque_ref->data;
-
-        for (int i = 0; i < frame->nb_side_data; i++) {
-            const AVSideDataDescriptor *desc = av_frame_side_data_desc(frame->side_data[i]->type);
-
-            if (!(desc->props & AV_SIDE_DATA_PROP_GLOBAL))
-                continue;
-
-            ret = av_frame_side_data_clone(&enc_ctx->decoded_side_data,
-                                           &enc_ctx->nb_decoded_side_data,
-                                           frame->side_data[i],
-                                           AV_FRAME_SIDE_DATA_FLAG_UNIQUE);
-            if (ret < 0)
-                return ret;
-        }
     }
 
     ret = set_encoder_id(of, ost);
@@ -257,6 +246,21 @@ int enc_open(void *opaque, const AVFrame *frame)
         enc_ctx->colorspace             = frame->colorspace;
         enc_ctx->chroma_sample_location = frame->chroma_location;
 
+        for (int i = 0; i < frame->nb_side_data; i++) {
+            ret = av_frame_side_data_clone(
+                &enc_ctx->decoded_side_data, &enc_ctx->nb_decoded_side_data,
+                frame->side_data[i], AV_FRAME_SIDE_DATA_FLAG_UNIQUE);
+            if (ret < 0) {
+                av_frame_side_data_free(
+                    &enc_ctx->decoded_side_data,
+                    &enc_ctx->nb_decoded_side_data);
+                av_log(NULL, AV_LOG_ERROR,
+                        "failed to configure video encoder: %s!\n",
+                        av_err2str(ret));
+                return ret;
+            }
+        }
+
         if (enc_ctx->flags & (AV_CODEC_FLAG_INTERLACED_DCT | AV_CODEC_FLAG_INTERLACED_ME) ||
             (frame->flags & AV_FRAME_FLAG_INTERLACED)
 #if FFMPEG_OPT_TOP
@@ -280,6 +284,9 @@ int enc_open(void *opaque, const AVFrame *frame)
         break;
         }
     case AVMEDIA_TYPE_SUBTITLE:
+        if (ost->enc_timebase.num)
+            av_log(ost, AV_LOG_WARNING,
+                   "-enc_time_base not supported for subtitles, ignoring\n");
         enc_ctx->time_base = AV_TIME_BASE_Q;
 
         if (!enc_ctx->width) {
@@ -351,6 +358,29 @@ int enc_open(void *opaque, const AVFrame *frame)
         av_log(ost, AV_LOG_FATAL,
                "Error initializing the output stream codec context.\n");
         return ret;
+    }
+
+    /*
+     * Add global input side data. For now this is naive, and copies it
+     * from the input stream's global side data. All side data should
+     * really be funneled over AVFrame and libavfilter, then added back to
+     * packet side data, and then potentially using the first packet for
+     * global side data.
+     */
+    if (ist) {
+        for (int i = 0; i < ist->st->codecpar->nb_coded_side_data; i++) {
+            AVPacketSideData *sd_src = &ist->st->codecpar->coded_side_data[i];
+            if (sd_src->type != AV_PKT_DATA_CPB_PROPERTIES) {
+                AVPacketSideData *sd_dst = av_packet_side_data_new(&ost->par_in->coded_side_data,
+                                                                   &ost->par_in->nb_coded_side_data,
+                                                                   sd_src->type, sd_src->size, 0);
+                if (!sd_dst)
+                    return AVERROR(ENOMEM);
+                memcpy(sd_dst->data, sd_src->data, sd_src->size);
+                if (ist->autorotate && sd_src->type == AV_PKT_DATA_DISPLAYMATRIX)
+                    av_display_rotation_set((int32_t *)sd_dst->data, 0);
+            }
+        }
     }
 
     // copy timebase while removing common factors

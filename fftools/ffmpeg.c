@@ -68,19 +68,40 @@
 #include <conio.h>
 #endif
 
+#include "libavutil/avassert.h"
+#include "libavutil/avstring.h"
 #include "libavutil/bprint.h"
+#include "libavutil/channel_layout.h"
 #include "libavutil/dict.h"
-#include "libavutil/mem.h"
+#include "libavutil/display.h"
+#include "libavutil/fifo.h"
+#include "libavutil/hwcontext.h"
+#include "libavutil/imgutils.h"
+#include "libavutil/intreadwrite.h"
+#include "libavutil/libm.h"
+#include "libavutil/mathematics.h"
+#include "libavutil/opt.h"
+#include "libavutil/parseutils.h"
+#include "libavutil/pixdesc.h"
+#include "libavutil/samplefmt.h"
+#include "libavutil/thread.h"
+#include "libavutil/threadmessage.h"
 #include "libavutil/time.h"
+#include "libavutil/timestamp.h"
+
+#include "libavcodec/version.h"
 
 #include "libavformat/avformat.h"
 
 #include "libavdevice/avdevice.h"
 
+#include "libswresample/swresample.h"
+
 #include "cmdutils.h"
 #include "ffmpeg.h"
 #include "ffmpeg_sched.h"
 #include "ffmpeg_utils.h"
+#include "sync_queue.h"
 
 const char program_name[] = "ffmpeg";
 const int program_birth_year = 2000;
@@ -136,7 +157,7 @@ void term_exit(void)
 
 static volatile int received_sigterm = 0;
 static volatile int received_nb_signals = 0;
-static atomic_int transcode_init_done = 0;
+static atomic_int transcode_init_done = ATOMIC_VAR_INIT(0);
 static volatile int ffmpeg_exited = 0;
 static int64_t copy_ts_first_pts = AV_NOPTS_VALUE;
 
@@ -473,6 +494,26 @@ const FrameData *packet_data_c(AVPacket *pkt)
     return ret < 0 ? NULL : (const FrameData*)pkt->opaque_ref->data;
 }
 
+void remove_avoptions(AVDictionary **a, AVDictionary *b)
+{
+    const AVDictionaryEntry *t = NULL;
+
+    while ((t = av_dict_iterate(b, t))) {
+        av_dict_set(a, t->key, NULL, AV_DICT_MATCH_CASE);
+    }
+}
+
+int check_avoptions(AVDictionary *m)
+{
+    const AVDictionaryEntry *t;
+    if ((t = av_dict_get(m, "", NULL, AV_DICT_IGNORE_SUFFIX))) {
+        av_log(NULL, AV_LOG_FATAL, "Option %s not found.\n", t->key);
+        return AVERROR_OPTION_NOT_FOUND;
+    }
+
+    return 0;
+}
+
 void update_benchmark(const char *fmt, ...)
 {
     if (do_benchmark_all) {
@@ -767,11 +808,6 @@ static int check_keyboard_interaction(int64_t cur_time)
             (n = sscanf(buf, "%63[^ ] %lf %255[^ ] %255[^\n]", target, &time, command, arg)) >= 3) {
             av_log(NULL, AV_LOG_DEBUG, "Processing command target:%s time:%f command:%s arg:%s",
                    target, time, command, arg);
-            for (OutputStream *ost = ost_iter(NULL); ost; ost = ost_iter(ost)) {
-                if (ost->fg_simple)
-                    fg_send_command(ost->fg_simple, time, target, command, arg,
-                                    key == 'C');
-            }
             for (i = 0; i < nb_filtergraphs; i++)
                 fg_send_command(filtergraphs[i], time, target, command, arg,
                                 key == 'C');

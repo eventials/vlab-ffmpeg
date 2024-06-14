@@ -86,11 +86,10 @@ func ff_lpc_apply_welch_window_rvv, zve64d
         ret
 endfunc
 
-func ff_lpc_compute_autocorr_rvv, zve64d, zbb
-        vtype_vli t1, a2, t2, e64, ta, ma, 1
+func ff_lpc_compute_autocorr_rvv, zve64d
         addi      a2, a2, 1
         li        t0, 1
-        vsetvl    zero, a2, t1
+        vsetvli   zero, a2, e64, m8, ta, ma
         fcvt.d.l  ft0, t0
         vle64.v   v0, (a0)
         sh3add    a0, a2, a0   # data += lag

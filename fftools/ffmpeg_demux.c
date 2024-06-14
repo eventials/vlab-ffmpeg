@@ -28,7 +28,6 @@
 #include "libavutil/display.h"
 #include "libavutil/error.h"
 #include "libavutil/intreadwrite.h"
-#include "libavutil/mem.h"
 #include "libavutil/opt.h"
 #include "libavutil/parseutils.h"
 #include "libavutil/pixdesc.h"
@@ -65,8 +64,6 @@ typedef struct DemuxStream {
     int                      streamcopy_needed;
     int                      have_sub2video;
     int                      reinit_filters;
-    int                      autorotate;
-
 
     int                      wrap_correction_done;
     int                      saw_first_ts;
@@ -911,11 +908,11 @@ static int ist_use(InputStream *ist, int decoding_needed)
     if (decoding_needed && ds->sch_idx_dec < 0) {
         int is_audio = ist->st->codecpar->codec_type == AVMEDIA_TYPE_AUDIO;
 
-        ds->dec_opts.flags |= (!!ist->fix_sub_duration * DECODER_FLAG_FIX_SUB_DURATION) |
-                              (!!(d->f.ctx->iformat->flags & AVFMT_NOTIMESTAMPS) * DECODER_FLAG_TS_UNRELIABLE) |
-                              (!!(d->loop && is_audio) * DECODER_FLAG_SEND_END_TS)
+        ds->dec_opts.flags = (!!ist->fix_sub_duration * DECODER_FLAG_FIX_SUB_DURATION) |
+                             (!!(d->f.ctx->iformat->flags & AVFMT_NOTIMESTAMPS) * DECODER_FLAG_TS_UNRELIABLE) |
+                             (!!(d->loop && is_audio) * DECODER_FLAG_SEND_END_TS)
 #if FFMPEG_OPT_TOP
-                              | ((ist->top_field_first >= 0) * DECODER_FLAG_TOP_FIELD_FIRST)
+                             | ((ist->top_field_first >= 0) * DECODER_FLAG_TOP_FIELD_FIRST)
 #endif
                              ;
 
@@ -1058,7 +1055,7 @@ int ist_filter_add(InputStream *ist, InputFilter *ifilter, int is_simple,
     if (!opts->name)
         return AVERROR(ENOMEM);
 
-    opts->flags |= IFILTER_FLAG_AUTOROTATE * !!(ds->autorotate) |
+    opts->flags |= IFILTER_FLAG_AUTOROTATE * !!(ist->autorotate) |
                    IFILTER_FLAG_REINIT     * !!(ds->reinit_filters);
 
     return ds->sch_idx_dec;
@@ -1238,8 +1235,8 @@ static int ist_add(const OptionsContext *o, Demuxer *d, AVStream *st)
     ds->ts_scale = 1.0;
     MATCH_PER_STREAM_OPT(ts_scale, dbl, ds->ts_scale, ic, st);
 
-    ds->autorotate = 1;
-    MATCH_PER_STREAM_OPT(autorotate, i, ds->autorotate, ic, st);
+    ist->autorotate = 1;
+    MATCH_PER_STREAM_OPT(autorotate, i, ist->autorotate, ic, st);
 
     MATCH_PER_STREAM_OPT(codec_tags, str, codec_tag, ic, st);
     if (codec_tag) {
@@ -1332,12 +1329,10 @@ static int ist_add(const OptionsContext *o, Demuxer *d, AVStream *st)
     if (ret < 0)
         return ret;
 
-    if (ist->dec) {
-        ret = filter_codec_opts(o->g->codec_opts, ist->st->codecpar->codec_id,
-                                ic, st, ist->dec, &ds->decoder_opts);
-        if (ret < 0)
-            return ret;
-    }
+    ret = filter_codec_opts(o->g->codec_opts, ist->st->codecpar->codec_id,
+                            ic, st, ist->dec, &ds->decoder_opts);
+    if (ret < 0)
+        return ret;
 
     ds->reinit_filters = -1;
     MATCH_PER_STREAM_OPT(reinit_filters, i, ds->reinit_filters, ic, st);
@@ -1360,7 +1355,8 @@ static int ist_add(const OptionsContext *o, Demuxer *d, AVStream *st)
         ist->user_set_discard = ist->st->discard;
     }
 
-    ds->dec_opts.flags |= DECODER_FLAG_BITEXACT * !!o->bitexact;
+    if (o->bitexact)
+        av_dict_set(&ds->decoder_opts, "flags", "+bitexact", AV_DICT_MULTIKEY);
 
     /* Attached pics are sparse, therefore we would not want to delay their decoding
      * till EOF. */
@@ -1386,30 +1382,9 @@ static int ist_add(const OptionsContext *o, Demuxer *d, AVStream *st)
 
         break;
     case AVMEDIA_TYPE_AUDIO: {
-        char *ch_layout_str = NULL;
-        MATCH_PER_STREAM_OPT(audio_ch_layouts, str, ch_layout_str, ic, st);
-        if (ch_layout_str) {
-            AVChannelLayout ch_layout;
-            ret = av_channel_layout_from_string(&ch_layout, ch_layout_str);
-            if (ret < 0) {
-                av_log(ist, AV_LOG_ERROR, "Error parsing channel layout %s.\n", ch_layout_str);
-                return ret;
-            }
-            if (par->ch_layout.nb_channels <= 0 || par->ch_layout.nb_channels == ch_layout.nb_channels) {
-                av_channel_layout_uninit(&par->ch_layout);
-                par->ch_layout = ch_layout;
-            } else {
-                av_log(ist, AV_LOG_ERROR,
-                    "Specified channel layout '%s' has %d channels, but input has %d channels.\n",
-                    ch_layout_str, ch_layout.nb_channels, par->ch_layout.nb_channels);
-                av_channel_layout_uninit(&ch_layout);
-                return AVERROR(EINVAL);
-            }
-        } else {
-            int guess_layout_max = INT_MAX;
-            MATCH_PER_STREAM_OPT(guess_layout_max, i, guess_layout_max, ic, st);
-            guess_input_channel_layout(ist, par, guess_layout_max);
-        }
+        int guess_layout_max = INT_MAX;
+        MATCH_PER_STREAM_OPT(guess_layout_max, i, guess_layout_max, ic, st);
+        guess_input_channel_layout(ist, par, guess_layout_max);
         break;
     }
     case AVMEDIA_TYPE_DATA:

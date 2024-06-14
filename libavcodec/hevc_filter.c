@@ -26,7 +26,7 @@
 #include "libavutil/internal.h"
 
 #include "hevcdec.h"
-#include "progressframe.h"
+#include "threadframe.h"
 
 #define LUMA 0
 #define CB 1
@@ -874,15 +874,15 @@ void ff_hevc_hls_filter(HEVCLocalContext *lc, int x, int y, int ctb_size)
         if (y && x_end) {
             sao_filter_CTB(lc, s, x, y - ctb_size);
             if (s->threads_type & FF_THREAD_FRAME )
-                ff_progress_frame_report(&s->ref->tf, y);
+                ff_thread_report_progress(&s->ref->tf, y, 0);
         }
         if (x_end && y_end) {
             sao_filter_CTB(lc, s, x , y);
             if (s->threads_type & FF_THREAD_FRAME )
-                ff_progress_frame_report(&s->ref->tf, y + ctb_size);
+                ff_thread_report_progress(&s->ref->tf, y + ctb_size, 0);
         }
     } else if (s->threads_type & FF_THREAD_FRAME && x_end)
-        ff_progress_frame_report(&s->ref->tf, y + ctb_size - 4);
+        ff_thread_report_progress(&s->ref->tf, y + ctb_size - 4, 0);
 }
 
 void ff_hevc_hls_filters(HEVCLocalContext *lc, int x_ctb, int y_ctb, int ctb_size)

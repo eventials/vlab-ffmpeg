@@ -39,7 +39,6 @@
 #include "libavutil/avstring.h"
 #include "libavutil/error.h"
 #include "libavutil/intreadwrite.h"
-#include "libavutil/mem.h"
 #include "libavutil/opt.h"
 #include "libavutil/reverse.h"
 #include "avcodec.h"
@@ -176,7 +175,7 @@ static int cmp_id_key(const void *id, const void *k)
 
 static const char *search_keyval(const TiffGeoTagKeyName *keys, int n, int id)
 {
-    const TiffGeoTagKeyName *r = bsearch(&id, keys, n, sizeof(keys[0]), cmp_id_key);
+    TiffGeoTagKeyName *r = bsearch(&id, keys, n, sizeof(keys[0]), cmp_id_key);
     if(r)
         return r->name;
 
@@ -422,8 +421,7 @@ static void av_always_inline horizontal_fill(TiffContext *s,
             uint8_t shift = is_dng ? 0 : 16 - bpp;
             GetBitContext gb;
 
-            int ret = init_get_bits8(&gb, src, width);
-            av_assert1(ret >= 0);
+            init_get_bits8(&gb, src, width);
             for (int i = 0; i < s->width; i++) {
                 dst16[i] = get_bits(&gb, bpp) << shift;
             }
@@ -457,8 +455,7 @@ static void unpack_gray(TiffContext *s, AVFrame *p,
     GetBitContext gb;
     uint16_t *dst = (uint16_t *)(p->data[0] + lnum * p->linesize[0]);
 
-    int ret = init_get_bits8(&gb, src, width);
-    av_assert1(ret >= 0);
+    init_get_bits8(&gb, src, width);
 
     for (int i = 0; i < s->width; i++) {
         dst[i] = get_bits(&gb, bpp);
@@ -2269,10 +2266,8 @@ again:
             group_size = s->width * channels;
 
             tmpbuf = av_malloc(ssize);
-            if (!tmpbuf) {
-                av_free(five_planes);
+            if (!tmpbuf)
                 return AVERROR(ENOMEM);
-            }
 
             if (s->avctx->pix_fmt == AV_PIX_FMT_RGBF32LE ||
                 s->avctx->pix_fmt == AV_PIX_FMT_RGBAF32LE) {
@@ -2385,6 +2380,7 @@ again:
         }
     }
 
+    p->flags |= AV_FRAME_FLAG_KEY;
     *got_frame = 1;
 
     return avpkt->size;

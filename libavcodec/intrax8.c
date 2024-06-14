@@ -22,7 +22,6 @@
  */
 
 #include "libavutil/avassert.h"
-#include "libavutil/mem.h"
 #include "libavutil/thread.h"
 #include "avcodec.h"
 #include "get_bits.h"

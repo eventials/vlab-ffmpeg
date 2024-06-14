@@ -20,7 +20,6 @@
 
 /** Based on the CURL SChannel module */
 
-#include "libavutil/mem.h"
 #include "avformat.h"
 #include "internal.h"
 #include "network.h"

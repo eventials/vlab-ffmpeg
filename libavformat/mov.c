@@ -40,7 +40,6 @@
 #include "libavutil/avassert.h"
 #include "libavutil/avstring.h"
 #include "libavutil/dict.h"
-#include "libavutil/mem.h"
 #include "libavutil/opt.h"
 #include "libavutil/aes.h"
 #include "libavutil/aes_ctr.h"
@@ -864,7 +863,6 @@ static int mov_read_dac3(MOVContext *c, AVIOContext *pb, MOVAtom atom)
     return 0;
 }
 
-#if CONFIG_IAMFDEC
 static int mov_read_iacb(MOVContext *c, AVIOContext *pb, MOVAtom atom)
 {
     AVStream *st;
@@ -1044,7 +1042,6 @@ fail:
 
     return ret;
 }
-#endif
 
 static int mov_read_dec3(MOVContext *c, AVIOContext *pb, MOVAtom atom)
 {
@@ -4813,7 +4810,6 @@ static void fix_timescale(MOVContext *c, MOVStreamContext *sc)
     }
 }
 
-#if CONFIG_IAMFDEC
 static int mov_update_iamf_streams(MOVContext *c, const AVStream *st)
 {
     const MOVStreamContext *sc = st->priv_data;
@@ -4857,7 +4853,6 @@ static int mov_update_iamf_streams(MOVContext *c, const AVStream *st)
 
     return 0;
 }
-#endif
 
 static int mov_read_trak(MOVContext *c, AVIOContext *pb, MOVAtom atom)
 {
@@ -4922,13 +4917,11 @@ static int mov_read_trak(MOVContext *c, AVIOContext *pb, MOVAtom atom)
 
     mov_build_index(c, st);
 
-#if CONFIG_IAMFDEC
     if (sc->iamf) {
         ret = mov_update_iamf_streams(c, st);
         if (ret < 0)
             return ret;
     }
-#endif
 
     if (sc->dref_id-1 < sc->drefs_count && sc->drefs[sc->dref_id-1].path) {
         MOVDref *dref = &sc->drefs[sc->dref_id - 1];
@@ -5032,7 +5025,7 @@ static int mov_read_keys(MOVContext *c, AVIOContext *pb, MOVAtom atom)
     avio_skip(pb, 4);
     count = avio_rb32(pb);
     atom.size -= 8;
-    if (count >= UINT_MAX / sizeof(*c->meta_keys)) {
+    if (count > UINT_MAX / sizeof(*c->meta_keys) - 1) {
         av_log(c->fc, AV_LOG_ERROR,
                "The 'keys' atom with the invalid key count: %"PRIu32"\n", count);
         return AVERROR_INVALIDDATA;
@@ -7926,10 +7919,8 @@ cleanup:
 static int mov_read_SA3D(MOVContext *c, AVIOContext *pb, MOVAtom atom)
 {
     AVStream *st;
-    AVChannelLayout ch_layout = { 0 };
-    int ret, i, version, type;
+    int i, version, type;
     int ambisonic_order, channel_order, normalization, channel_count;
-    int ambi_channels, non_diegetic_channels;
 
     if (c->fc->nb_streams < 1)
         return 0;
@@ -7948,12 +7939,11 @@ static int mov_read_SA3D(MOVContext *c, AVIOContext *pb, MOVAtom atom)
     }
 
     type = avio_r8(pb);
-    if (type & 0x7f) {
+    if (type) {
         av_log(c->fc, AV_LOG_WARNING,
-               "Unsupported ambisonic type %d\n", type & 0x7f);
+               "Unsupported ambisonic type %d\n", type);
         return 0;
     }
-    non_diegetic_channels = (type >> 7) * 2; // head_locked_stereo
 
     ambisonic_order = avio_rb32(pb);
 
@@ -7972,43 +7962,24 @@ static int mov_read_SA3D(MOVContext *c, AVIOContext *pb, MOVAtom atom)
     }
 
     channel_count = avio_rb32(pb);
-    if (ambisonic_order < 0 || ambisonic_order > 31 ||
-        channel_count != ((ambisonic_order + 1LL) * (ambisonic_order + 1LL) +
-                           non_diegetic_channels)) {
+    if (ambisonic_order < 0 || channel_count != (ambisonic_order + 1LL) * (ambisonic_order + 1LL)) {
         av_log(c->fc, AV_LOG_ERROR,
                "Invalid number of channels (%d / %d)\n",
                channel_count, ambisonic_order);
         return 0;
     }
-    ambi_channels = channel_count - non_diegetic_channels;
-
-    ret = av_channel_layout_custom_init(&ch_layout, channel_count);
-    if (ret < 0)
-        return 0;
 
     for (i = 0; i < channel_count; i++) {
-        unsigned channel = avio_rb32(pb);
-
-        if (channel >= channel_count) {
-            av_log(c->fc, AV_LOG_ERROR, "Invalid channel index (%d / %d)\n",
-                   channel, ambisonic_order);
-            av_channel_layout_uninit(&ch_layout);
+        if (i != avio_rb32(pb)) {
+            av_log(c->fc, AV_LOG_WARNING,
+                   "Ambisonic channel reordering is not supported\n");
             return 0;
         }
-        if (channel >= ambi_channels)
-            ch_layout.u.map[i].id = channel - ambi_channels;
-        else
-            ch_layout.u.map[i].id = AV_CHAN_AMBISONIC_BASE + channel;
-    }
-
-    ret = av_channel_layout_retype(&ch_layout, 0, AV_CHANNEL_LAYOUT_RETYPE_FLAG_CANONICAL);
-    if (ret < 0) {
-        av_channel_layout_uninit(&ch_layout);
-        return 0;
     }
 
     av_channel_layout_uninit(&st->codecpar->ch_layout);
-    st->codecpar->ch_layout = ch_layout;
+    st->codecpar->ch_layout.order = AV_CHANNEL_ORDER_AMBISONIC;
+    st->codecpar->ch_layout.nb_channels = channel_count;
 
     return 0;
 }
@@ -8618,9 +8589,7 @@ static const MOVParseTableEntry mov_default_parse_table[] = {
 { MKTAG('i','p','r','p'), mov_read_iprp },
 { MKTAG('i','i','n','f'), mov_read_iinf },
 { MKTAG('a','m','v','e'), mov_read_amve }, /* ambient viewing environment box */
-#if CONFIG_IAMFDEC
 { MKTAG('i','a','c','b'), mov_read_iacb },
-#endif
 { 0, NULL }
 };
 
@@ -9092,10 +9061,8 @@ static void mov_free_stream_context(AVFormatContext *s, AVStream *st)
     av_freep(&sc->coll);
     av_freep(&sc->ambient);
 
-#if CONFIG_IAMFDEC
     if (sc->iamf)
         ff_iamf_read_deinit(sc->iamf);
-#endif
     av_freep(&sc->iamf);
 }
 
@@ -9667,7 +9634,25 @@ static int mov_read_header(AVFormatContext *s)
         }
     }
 
-    if (mov->trex_data || mov->use_mfra_for > 0) {
+    if (mov->trex_data) {
+        for (i = 0; i < s->nb_streams; i++) {
+            AVStream *st = s->streams[i];
+            MOVStreamContext *sc = st->priv_data;
+            if (st->duration > 0) {
+                /* Akin to sc->data_size * 8 * sc->time_scale / st->duration but accounting for overflows. */
+                st->codecpar->bit_rate = av_rescale(sc->data_size, ((int64_t) sc->time_scale) * 8, st->duration);
+                if (st->codecpar->bit_rate == INT64_MIN) {
+                    av_log(s, AV_LOG_WARNING, "Overflow during bit rate calculation %"PRId64" * 8 * %d\n",
+                           sc->data_size, sc->time_scale);
+                    st->codecpar->bit_rate = 0;
+                    if (s->error_recognition & AV_EF_EXPLODE)
+                        return AVERROR_INVALIDDATA;
+                }
+            }
+        }
+    }
+
+    if (mov->use_mfra_for > 0) {
         for (i = 0; i < s->nb_streams; i++) {
             AVStream *st = s->streams[i];
             MOVStreamContext *sc = st->priv_data;
@@ -9988,7 +9973,6 @@ static int mov_read_packet(AVFormatContext *s, AVPacket *pkt)
 
         if (st->codecpar->codec_id == AV_CODEC_ID_EIA_608 && sample->size > 8)
             ret = get_eia608_packet(sc->pb, pkt, sample->size);
-#if CONFIG_IAMFDEC
         else if (sc->iamf) {
             int64_t pts, dts, pos, duration;
             int flags, size = sample->size;
@@ -10011,9 +9995,7 @@ static int mov_read_packet(AVFormatContext *s, AVPacket *pkt)
             }
             if (!ret)
                 return FFERROR_REDO;
-        }
-#endif
-        else
+        } else
             ret = av_get_packet(sc->pb, pkt, sample->size);
         if (ret < 0) {
             if (should_retry(sc->pb, ret)) {
@@ -10133,7 +10115,7 @@ static int mov_seek_stream(AVFormatContext *s, AVStream *st, int64_t timestamp, 
 {
     MOVStreamContext *sc = st->priv_data;
     FFStream *const sti = ffstream(st);
-    int sample, time_sample, ret, next_ts, requested_sample;
+    int sample, time_sample, ret;
     unsigned int i;
 
     // Here we consider timestamp to be PTS, hence try to offset it so that we
@@ -10154,17 +10136,7 @@ static int mov_seek_stream(AVFormatContext *s, AVStream *st, int64_t timestamp, 
 
         if (!sample || can_seek_to_key_sample(st, sample, timestamp))
             break;
-
-        next_ts = timestamp - FFMAX(sc->min_sample_duration, 1);
-        requested_sample = av_index_search_timestamp(st, next_ts, flags);
-
-        // If we've reached a different sample trying to find a good pts to
-        // seek to, give up searching because we'll end up seeking back to
-        // sample 0 on every seek.
-        if (!can_seek_to_key_sample(st, requested_sample, next_ts) && sample != requested_sample)
-            break;
-
-        timestamp = next_ts;
+        timestamp -= FFMAX(sc->min_sample_duration, 1);
     }
 
     mov_current_sample_set(sc, sample);

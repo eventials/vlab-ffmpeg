@@ -59,6 +59,10 @@ enum AVPacketSideDataType {
      * An AV_PKT_DATA_PARAM_CHANGE side data packet is laid out as follows:
      * @code
      * u32le param_flags
+     * if (param_flags & AV_SIDE_DATA_PARAM_CHANGE_CHANNEL_COUNT)
+     *     s32le channel_count
+     * if (param_flags & AV_SIDE_DATA_PARAM_CHANGE_CHANNEL_LAYOUT)
+     *     u64le channel_layout
      * if (param_flags & AV_SIDE_DATA_PARAM_CHANGE_SAMPLE_RATE)
      *     s32le sample_rate
      * if (param_flags & AV_SIDE_DATA_PARAM_CHANGE_DIMENSIONS)
@@ -337,9 +341,7 @@ enum AVPacketSideDataType {
     AV_PKT_DATA_NB
 };
 
-#if FF_API_QUALITY_FACTOR
 #define AV_PKT_DATA_QUALITY_FACTOR AV_PKT_DATA_QUALITY_STATS //DEPRECATED
-#endif
 
 /**
  * This structure stores auxiliary information for decoding, presenting, or
@@ -495,14 +497,6 @@ const char *av_packet_side_data_name(enum AVPacketSideDataType type);
  * @see av_packet_unref
  */
 typedef struct AVPacket {
-    
-    /**
-     * The name of the last file opened associated with this packet.
-     * This is useful for tracking the origins of the packet's data during
-     * processing and debugging, linking the packet contents directly to a specific
-     * media file.
-     */
-    char *filename;
     /**
      * A reference to the reference-counted buffer where the packet data is
      * stored.

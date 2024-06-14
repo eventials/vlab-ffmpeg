@@ -28,8 +28,8 @@
 #include "libavutil/attributes.h"
 #include "libavutil/avassert.h"
 #include "libavutil/crc.h"
-#include "libavutil/mem.h"
 #include "libavutil/opt.h"
+#include "libavutil/imgutils.h"
 #include "libavutil/pixdesc.h"
 
 #include "avcodec.h"
@@ -38,6 +38,7 @@
 #include "put_bits.h"
 #include "put_golomb.h"
 #include "rangecoder.h"
+#include "mathops.h"
 #include "ffv1.h"
 
 static const int8_t quant5_10bit[256] = {
