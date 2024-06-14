@@ -47,6 +47,7 @@ void av_init_packet(AVPacket *pkt)
     pkt->opaque               = NULL;
     pkt->opaque_ref           = NULL;
     pkt->time_base            = av_make_q(0, 1);
+    pkt->filename             = NULL;
 }
 #endif
 
@@ -402,6 +403,7 @@ int av_packet_copy_props(AVPacket *dst, const AVPacket *src)
     dst->opaque_ref           = NULL;
     dst->side_data            = NULL;
     dst->side_data_elems      = 0;
+    dst->filename             = src->filename;
 
     ret = av_buffer_replace(&dst->opaque_ref, src->opaque_ref);
     if (ret < 0)

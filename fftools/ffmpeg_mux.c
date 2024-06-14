@@ -213,6 +213,10 @@ static int write_packet(Muxer *mux, OutputStream *ost, AVPacket *pkt)
     int64_t fs;
     uint64_t frame_num;
     int ret;
+    char *filename = NULL;
+
+    if (pkt->filename != NULL)
+        filename = strdup(pkt->filename);
 
     fs = filesize(s->pb);
     atomic_store(&mux->last_filesize, fs);
@@ -235,9 +239,16 @@ static int write_packet(Muxer *mux, OutputStream *ost, AVPacket *pkt)
 
     ret = av_interleaved_write_frame(s, pkt);
     if (ret < 0) {
-        av_log(ost, AV_LOG_ERROR,
-               "Error submitting a packet to the muxer: %s\n",
+        if (filename != NULL){
+            av_log(ost, AV_LOG_FATAL,
+               "Error submitting a packet of (%s) to the muxer: %s\n",
+               filename,
                av_err2str(ret));
+        } else {
+            av_log(ost, AV_LOG_FATAL,
+               "Error submitting a packet without filename to the muxer: %s\n",
+               av_err2str(ret));
+        }
         goto fail;
     }
 
