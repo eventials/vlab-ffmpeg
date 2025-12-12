@@ -22,7 +22,7 @@
 #include "libavutil/macros.h"
 #include "libavutil/mem_internal.h"
 
-#include "libavcodec/hevcdsp.h"
+#include "libavcodec/hevc/dsp.h"
 
 #include "checkasm.h"
 
@@ -167,7 +167,7 @@ static void randomize_luma_buffers(int type, int *beta, int32_t tc[2],
             tc25diff = FFMAX(tc25 - 1, 0);
             // 4 lines per tc
             for (i = 0; i < 4; i++) {
-                // Weak filtering is signficantly simpler to activate as
+                // Weak filtering is significantly simpler to activate as
                 // we only need to satisfy d0 + d3 < beta, which
                 // can be simplified to d0 + d0 < beta. Using the above
                 // derivations but substiuting b3 for b1 and ensuring

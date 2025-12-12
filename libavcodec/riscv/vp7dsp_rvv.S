@@ -21,7 +21,8 @@
 #include "libavutil/riscv/asm.S"
 
 #if __riscv_xlen >= 64
-func ff_vp7_luma_dc_wht_rvv, zve32x
+func ff_vp7_luma_dc_wht_rvv, zve32x, zba
+        lpad    0
         li          a2, 4 * 16 * 2
         li          a7, 16 * 2
         jal         t0, 1f
@@ -99,6 +100,7 @@ func ff_vp7_luma_dc_wht_rvv, zve32x
 endfunc
 
 func ff_vp7_idct_add_rvv, zve32x
+        lpad    0
         jal         t0, 1b
         csrwi       vxrm, 2
         vsetvli     zero, zero, e8, mf4, ta, ma
@@ -127,3 +129,22 @@ func ff_vp7_idct_add_rvv, zve32x
         ret
 endfunc
 #endif
+
+.irp type, y, uv
+func ff_vp7_idct_dc_add4\type\()_rvv, zve32x
+        lpad    0
+        li       t0, 32
+        vsetivli zero, 4, e16, mf2, ta, ma
+        li       t1, 23170
+        vlse16.v v8, (a1), t0 # block[0..3][0]
+        vwmul.vx v0, v8, t1
+        li       t2, 0x20000 - (128 << 18)
+        vsetvli  zero, zero, e32, m1, ta, ma
+        vsra.vi  v0, v0, 14
+        vmul.vx  v0, v0, t1
+        vadd.vx  v0, v0, t2
+        vsetvli  zero, zero, e16, mf2, ta, ma
+        vnsra.wi v8, v0, 18   # 4x DC
+        tail     ff_vp78_idct_dc_add4\type\()_rvv
+endfunc
+.endr
